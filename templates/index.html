@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMS Static Stories Generator</title>
+    <!-- Quill Rich Text Editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: #F8F9FA; /* Half-white */
+            color: #333;
+            font-size: 12px;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .left-pane {
+            flex: 0 0 70%;
+            padding: 30px;
+            overflow-y: auto;
+            border-right: 1px solid #ddd;
+        }
+
+        .right-pane {
+            flex: 0 0 30%;
+            background-color: #FFFFFF;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #ddd;
+        }
+
+        .right-pane-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .right-pane-footer {
+            padding: 15px 20px;
+            background-color: #f1f1f1;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #111;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 8px 10px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            margin: 0;
+            font-weight: normal;
+        }
+        
+        .checkbox-group input {
+            margin-right: 5px;
+        }
+
+        /* Editor container */
+        #editor-container {
+            height: 300px;
+            background: #fff;
+            border-radius: 4px;
+        }
+
+        /* Specialized Buttons */
+        .btn-container {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            background-color: #222; /* Dark background to make electric blue pop */
+            border: 2px solid #FFD700; /* Solar Gold */
+            color: #7DF9FF; /* Electric Blue */
+            text-transform: uppercase;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #333;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status-msg {
+            margin-top: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status-success { color: green; }
+        .status-error { color: red; }
+
+        /* Right Pane Items */
+        .story-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 10px;
+        }
+        
+        .story-item .title {
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .story-item .meta {
+            color: #777;
+            font-size: 11px;
+        }
+
+        /* Hide the approve button initially */
+        #approveBtn {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- LEFT PANE -->
+    <div class="left-pane">
+        <h2>Content Editor</h2>
+
+        <div class="form-group">
+            <label>Title (Mandatory)</label>
+            <input type="text" id="title" placeholder="Enter story title">
+        </div>
+
+        <div class="form-group">
+            <label>Subtitle (Mandatory)</label>
+            <input type="text" id="subtitle" placeholder="Enter subtitle">
+        </div>
+
+        <div class="form-group">
+            <label>Summary (Used for Research/Articles)</label>
+            <textarea id="summary" rows="3" placeholder="Enter summary paragraph..."></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Type</label>
+            <div class="checkbox-group">
+                <label><input type="checkbox" class="type-cb" value="Short Story" checked> Short Story</label>
+                <label><input type="checkbox" class="type-cb" value="Research"> Research</label>
+                <label><input type="checkbox" class="type-cb" value="Article"> Article</label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Featured Image (Browse local file or enter path)</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="image" placeholder="assets/images/..." style="flex: 1;">
+                <input type="file" id="imageFile" accept="image/*" style="display: none;" onchange="uploadImage(this)">
+                <button type="button" class="btn" style="padding: 8px 15px; margin-top: 0; white-space: nowrap;" onclick="document.getElementById('imageFile').click()">Browse...</button>
+            </div>
+            <small id="uploadStatus" style="color: #666; display: block; margin-top: 5px;">Selecting a file securely uploads it to your website folder and maps the path.</small>
+        </div>
+
+        <div class="form-group">
+            <label>Body Content (Rich Text / Paste from Word)</label>
+            <div id="editor-container"></div>
+        </div>
+
+        <div class="form-group">
+            <label>Sources (Optional - One URL per line)</label>
+            <textarea id="sources" rows="4" placeholder="https://example.com/source1&#10;https://example.com/source2"></textarea>
+        </div>
+
+        <div class="btn-container">
+            <button class="btn" id="generateBtn" onclick="generateStory()">Generate Preview</button>
+            <button class="btn" id="approveBtn" onclick="approveStory()">Approve & Push to Live</button>
+        </div>
+        
+        <div id="statusMsg" class="status-msg"></div>
+    </div>
+
+    <!-- RIGHT PANE -->
+    <div class="right-pane">
+        <div class="right-pane-content">
+            <h2>Generated Files (Live)</h2>
+            {% for story in stories %}
+            <div class="story-item">
+                <div class="title">{{ story.title }}</div>
+                <div class="meta">ID: {{ story.id }}.html</div>
+            </div>
+            {% endfor %}
+            {% if not stories %}
+            <p style="color:#777;">No stories generated yet.</p>
+            {% endif %}
+        </div>
+        <div class="right-pane-footer">
+            <div>Total Files: {{ stats.Total }}</div>
+            <div style="margin-top:8px; color:#555;">
+                Short Stories: {{ stats['Short Stories'] }} &nbsp;|&nbsp; 
+                Research: {{ stats.Research }} &nbsp;|&nbsp; 
+                Articles: {{ stats.Articles }}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mutually exclusive checkboxes
+        const checkboxes = document.querySelectorAll('.type-cb');
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', function() {
+                if (this.checked) {
+                    checkboxes.forEach(other => {
+                        if (other !== this) other.checked = false;
+                    });
+                }
+            });
+        });
+
+        // Initialize Quill Editor
+        var quill = new Quill('#editor-container', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    ['bold', 'italic', 'underline', 'strike'],        // toggled buttons
+                    ['blockquote'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+                    [{ 'color': [] }, { 'background': [] }],          // dropdown with defaults from theme
+                    ['link', 'video'],                                // Add native link and video embed tools
+                    ['clean']                                         // remove formatting button
+                ]
+            }
+        });
+
+        async function uploadImage(input) {
+            if (!input.files || input.files.length === 0) return;
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const statusEl = document.getElementById('uploadStatus');
+            statusEl.textContent = "Uploading image...";
+            statusEl.style.color = "blue";
+
+            try {
+                const response = await fetch('/upload_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('image').value = data.path;
+                    statusEl.textContent = "Image uploaded and path mapped successfully!";
+                    statusEl.style.color = "green";
+                } else {
+                    statusEl.textContent = "Upload failed: " + data.error;
+                    statusEl.style.color = "red";
+                }
+            } catch (err) {
+                statusEl.textContent = "Error: " + err.message;
+                statusEl.style.color = "red";
+            }
+        }
+
+        // State variables
+        let currentDraftMetadata = null;
+        let currentDraftFilename = null;
+
+        // Ensure Local Server Closes with Browser
+        window.addEventListener("beforeunload", function (e) {
+            navigator.sendBeacon('/shutdown');
+        });
+
+        function showStatus(msg, isError=false) {
+            const el = document.getElementById('statusMsg');
+            el.textContent = msg;
+            el.className = 'status-msg ' + (isError ? 'status-error' : 'status-success');
+        }
+
+        async function generateStory() {
+            const title = document.getElementById('title').value.trim();
+            const subtitle = document.getElementById('subtitle').value.trim();
+            const summary = document.getElementById('summary').value.trim();
+            
+            if (!title || !subtitle) {
+                showStatus("Title and Subtitle are mandatory fields.", true);
+                return;
+            }
+
+            // Get selected type
+            let type = "Short Story";
+            checkboxes.forEach(cb => { if(cb.checked) type = cb.value; });
+
+            const image = document.getElementById('image').value;
+            const sources = document.getElementById('sources').value;
+            
+            // Get raw HTML from Quill (this includes the pasted Word formatting)
+            const bodyHtml = quill.root.innerHTML;
+
+            const payload = {
+                title: title,
+                subtitle: subtitle,
+                summary: summary,
+                type: type,
+                image: image,
+                body: bodyHtml,
+                sources: sources
+            };
+
+            const btn = document.getElementById('generateBtn');
+            btn.innerText = 'Generating...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    currentDraftFilename = data.filename;
+                    currentDraftMetadata = data.metadata;
+                    
+                    showStatus("Preview generated! Opening in new tab...");
+                    document.getElementById('approveBtn').style.display = 'block';
+                    
+                    // Open preview in new tab
+                    window.open(data.preview_url, '_blank');
+                } else {
+                    showStatus("Error: " + data.error, true);
+                }
+            } catch (err) {
+                showStatus("Network Error: " + err.message, true);
+            }
+
+            btn.innerText = 'Generate Preview';
+            btn.disabled = false;
+        }
+
+        async function approveStory() {
+            if (!currentDraftFilename || !currentDraftMetadata) {
+                showStatus("Draft missing. Please generate first.", true);
+                return;
+            }
+
+            const btn = document.getElementById('approveBtn');
+            btn.innerText = 'Approving...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: currentDraftFilename,
+                        metadata: currentDraftMetadata
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showStatus("Success! Story published to live website.");
+                    // Hide approve button so they don't click it again
+                    btn.style.display = 'none';
+                    // Reload the page to reset state and update right pane
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showStatus("Error: " + data.error, true);
+                    btn.innerText = 'Approve & Push to Live';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                showStatus("Network Error: " + err.message, true);
+                btn.innerText = 'Approve & Push to Live';
+                btn.disabled = false;
+            }
+        }
+    </script>
+
+</body>
+</html>
