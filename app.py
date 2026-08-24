@@ -4,6 +4,7 @@ import re
 import shutil
 import time
 import signal
+import datetime
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, jsonify, redirect, send_from_directory
 import webbrowser
@@ -82,14 +83,12 @@ def index():
             
     # Calculate stats dynamically
     short_stories = sum(1 for s in stories if s.get('type', 'Short Story') == 'Short Story')
-    research = sum(1 for s in stories if s.get('type') == 'Research')
-    articles = sum(1 for s in stories if s.get('type') == 'Article')
+    blogs = sum(1 for s in stories if s.get('type') == 'Blog')
     
     stats = {
         "Total": len(stories),
         "Short Stories": short_stories,
-        "Research": research,
-        "Articles": articles
+        "Blogs": blogs
     }
             
     return render_template("index.html", stories=stories, stats=stats)
@@ -210,6 +209,49 @@ def generate():
         
     final_html = final_html.replace('{{SUMMARY_BLOCK}}', summary_block)
     final_html = final_html.replace('{{CONTENT}}', content_html)
+    
+    # Schema Generation
+    current_date = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
+    full_image_url = f"https://darsanhalan.com/{image.lstrip('/')}"
+    if type_ == "Blog":
+        schema = {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": meta_desc,
+            "image": [full_image_url],
+            "datePublished": current_date,
+            "dateModified": current_date,
+            "author": {
+                "@type": "Person",
+                "name": "Darsan Halan"
+            },
+            "publisher": {
+                "@type": "Organization",
+                "name": "Darsan Halan",
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": "https://darsanhalan.com/assets/images/Darsan%20Logo.png"
+                }
+            }
+        }
+    else:
+        schema = {
+            "@context": "https://schema.org",
+            "@type": "ShortStory",
+            "name": title,
+            "author": {
+                "@type": "Person",
+                "name": "Darsan Halan"
+            },
+            "abstract": meta_desc,
+            "image": full_image_url,
+            "datePublished": current_date,
+            "genre": "Fiction"
+        }
+    
+    schema_script = f'<script type="application/ld+json">\n{json.dumps(schema, indent=4)}\n</script>'
+    final_html = final_html.replace('{{SCHEMA_MARKUP}}', schema_script)
     
     # Fix paths for nested folder execution
     final_html = final_html.replace('href="assets/', 'href="../assets/')
