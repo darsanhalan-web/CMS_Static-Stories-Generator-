@@ -62,12 +62,12 @@ def upload_image():
         
     if file:
         filename = secure_filename(file.filename)
-        dest_folder = os.path.join(WEBSITE_ROOT, 'assets', 'images')
+        dest_folder = os.path.join(WEBSITE_ROOT, 'stories', 'images')
         if not os.path.exists(dest_folder):
             os.makedirs(dest_folder)
         file_path = os.path.join(dest_folder, filename)
         file.save(file_path)
-        return jsonify({"success": True, "path": f"assets/images/{filename}"})
+        return jsonify({"success": True, "path": f"stories/images/{filename}"})
 
 @app.route("/")
 def index():
@@ -80,14 +80,16 @@ def index():
         except Exception as e:
             print("Error loading stories.json:", e)
             
-    # Calculate stats
-    # For now, stories.json has {'id', 'title', 'summary', 'image'}
-    # Categorization will depend on the real existing JSON, but we can default to Short Story
+    # Calculate stats dynamically
+    short_stories = sum(1 for s in stories if s.get('type', 'Short Story') == 'Short Story')
+    research = sum(1 for s in stories if s.get('type') == 'Research')
+    articles = sum(1 for s in stories if s.get('type') == 'Article')
+    
     stats = {
         "Total": len(stories),
-        "Short Stories": len(stories),
-        "Research": 0,
-        "Articles": 0
+        "Short Stories": short_stories,
+        "Research": research,
+        "Articles": articles
     }
             
     return render_template("index.html", stories=stories, stats=stats)
@@ -96,7 +98,8 @@ def index():
 def generate():
     data = request.json
     title = data.get('title', 'Untitled')
-    subtitle = data.get('subtitle', '')
+    description = data.get('description', '')
+    canonical_url = data.get('canonical_url', '')
     summary = data.get('summary', '')
     type_ = data.get('type', 'Short Story')
     image = data.get('image', 'assets/images/story_placeholder.jpg')
@@ -115,8 +118,48 @@ def generate():
     with open(TEMPLATE_PATH, 'r', encoding='utf-8') as f:
         template = f.read()
         
+    # Strip all inline styles pasted from Word/Quill to ensure it perfectly inherits the main site's CSS (fonts, colors, dark mode)
+    body = re.sub(r'\s*style="[^"]*"', '', body, flags=re.IGNORECASE)
+
     # Embed Videos & Add Sources
     content_html = embed_videos(body)
+    
+    # AdSense HTML to inject
+    ad_html = """
+    <div class="article-ad-container" style="margin: 3rem auto; text-align: center; display: flex; justify-content: center; width: 100%;">
+        <ins class="adsbygoogle"
+             style="display:inline-block; width:300px; height:250px;"
+             data-ad-client="ca-pub-1416149954400854"
+             data-ad-slot="auto"></ins>
+        <script>
+             (adsbygoogle = window.adsbygoogle || []).push({});
+        </script>
+    </div>
+    """
+    
+    # Inject Ads
+    # 1. At the top
+    content_html = ad_html + content_html
+    
+    # 2. After asterisks or native dividers
+    def inject_ad_after_asterisks(match):
+        tag = match.group(0)
+        if tag.strip().lower().startswith('<hr'):
+            return tag + '\n' + ad_html
+            
+        # Strip HTML tags to check the text content
+        text_content = re.sub(r'<[^>]+>', '', tag).replace('&nbsp;', ' ').strip()
+        non_space = re.sub(r'\s+', '', text_content)
+        
+        # Match if the text is purely dots, asterisks, or ellipsis (at least 2)
+        if re.fullmatch(r'[\*\.…\s]+', text_content) and len(non_space) >= 2:
+            return tag + '\n' + ad_html
+        return tag
+
+    content_html = re.sub(r'<p[^>]*>.*?</p>|<hr[^>]*>|<h[1-6][^>]*>.*?</h[1-6]>|<figure[^>]*>.*?</figure>', inject_ad_after_asterisks, content_html, flags=re.IGNORECASE|re.DOTALL)
+    
+    # 3. At the bottom
+    content_html = content_html + ad_html
     
     if sources.strip():
         source_links = sources.split('\n')
@@ -152,7 +195,19 @@ def generate():
         
     # Replace Template Tokens
     final_html = template.replace('{{TITLE}}', title)
-    final_html = final_html.replace('{{SUBHEADING}}', subtitle)
+    final_html = final_html.replace('{{SUBHEADING}}', description)
+    
+    # Description logic: If empty, fallback to summary.
+    meta_desc = description if description else summary
+    final_html = final_html.replace('{{DESCRIPTION}}', meta_desc)
+    
+    # Canonical URL logic
+    if canonical_url:
+        canonical_tag = f'<link rel="canonical" href="{canonical_url}">'
+        final_html = final_html.replace('{{CANONICAL_URL}}', canonical_tag)
+    else:
+        final_html = final_html.replace('{{CANONICAL_URL}}', '')
+        
     final_html = final_html.replace('{{SUMMARY_BLOCK}}', summary_block)
     final_html = final_html.replace('{{CONTENT}}', content_html)
     
@@ -173,7 +228,8 @@ def generate():
     metadata = {
         'id': filename.replace('.html', ''),
         'title': title,
-        'summary': summary if summary else subtitle,
+        'type': type_,
+        'summary': summary if summary else description,
         'image': image
     }
         

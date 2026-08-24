@@ -173,12 +173,14 @@
 
         <div class="form-group">
             <label>Title (Mandatory)</label>
-            <input type="text" id="title" placeholder="Enter story title">
+            <input type="text" id="title" placeholder="Enter story title" oninput="checkTitleLength()">
+            <small id="title-warning" style="color: red; display: none; margin-top: 5px;">Title should ideally be less than 60 characters.</small>
         </div>
 
         <div class="form-group">
-            <label>Subtitle (Mandatory)</label>
-            <input type="text" id="subtitle" placeholder="Enter subtitle">
+            <label>Description (SEO Meta Description & Subtitle)</label>
+            <textarea id="description" rows="2" placeholder="Enter SEO description / subtitle" oninput="checkDescLength()"></textarea>
+            <small id="desc-warning" style="color: red; display: none; margin-top: 5px;">Description should ideally be less than 150 characters.</small>
         </div>
 
         <div class="form-group">
@@ -196,9 +198,26 @@
         </div>
 
         <div class="form-group">
+            <label>Canonical URL (Optional)</label>
+            <input type="text" id="canonical_url" placeholder="https://darsanhalan.com/stories/story-name.html">
+        </div>
+
+        <div class="form-group">
+            <label>Keywords (Optional)</label>
+            <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                <input type="text" id="primary_keyword" placeholder="Primary keyword" style="flex: 1;">
+                <div style="flex: 2;">
+                    <input type="text" id="secondary_keywords" placeholder="Secondary keywords" style="width: 100%;">
+                    <small style="color: #666; display: block; margin-top: 4px;">Use semicolon (;) after each secondary keyword.</small>
+                </div>
+                <button type="button" class="btn" style="padding: 8px 15px; margin-top: 0; white-space: nowrap; height: fit-content;" onclick="checkKeywords()">Check</button>
+            </div>
+        </div>
+
+        <div class="form-group">
             <label>Featured Image (Browse local file or enter path)</label>
             <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="image" placeholder="assets/images/..." style="flex: 1;">
+                <input type="text" id="image" placeholder="stories/images/..." style="flex: 1;">
                 <input type="file" id="imageFile" accept="image/*" style="display: none;" onchange="uploadImage(this)">
                 <button type="button" class="btn" style="padding: 8px 15px; margin-top: 0; white-space: nowrap;" onclick="document.getElementById('imageFile').click()">Browse...</button>
             </div>
@@ -306,6 +325,84 @@
             }
         }
 
+        function checkTitleLength() {
+            const title = document.getElementById('title').value;
+            const warning = document.getElementById('title-warning');
+            if (title.length > 60) {
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
+        }
+
+        function checkDescLength() {
+            const desc = document.getElementById('description').value;
+            const warning = document.getElementById('desc-warning');
+            if (desc.length > 150) {
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
+        }
+
+        function checkKeywords() {
+            const primary = document.getElementById('primary_keyword').value.trim().toLowerCase();
+            const secondaryRaw = document.getElementById('secondary_keywords').value;
+            const secondary = secondaryRaw.split(';').map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
+            
+            // Get text from quill
+            const textContent = quill.getText().toLowerCase();
+            
+            // Basic word boundary match to count total words
+            const wordsMatch = textContent.match(/\b\w+\b/g);
+            const totalWords = wordsMatch ? wordsMatch.length : 0;
+            
+            if (totalWords === 0) {
+                alert("Please add some text to the body content first.");
+                return;
+            }
+
+            let results = `Total Word Count: ${totalWords}\n\n`;
+
+            // Function to count keyword occurrences
+            function checkDensity(kw) {
+                if (!kw) return;
+                // Escape regex specials
+                const safeKw = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+                // Regex to find keyword with word boundaries
+                const regex = new RegExp(`\\b${safeKw}\\b`, 'gi');
+                const matches = textContent.match(regex);
+                const count = matches ? matches.length : 0;
+                // Keyword density = (Number of exact matches * number of words in keyword) / Total word count
+                // Or simply keyword frequency / Total word count
+                const kwWords = kw.split(/\s+/).length;
+                const density = ((count * kwWords) / totalWords) * 100;
+                
+                let advice = "";
+                if (density < 1.0) advice = "(Under-optimized)";
+                else if (density > 2.0) advice = "(Over-optimized)";
+                else advice = "(Optimal \u2705)";
+                
+                results += `"${kw}" - Occurrences: ${count}, Density: ${density.toFixed(2)}% ${advice}\n`;
+            }
+
+            if (primary) {
+                results += "--- Primary Keyword ---\n";
+                checkDensity(primary);
+            } else {
+                results += "No primary keyword provided.\n";
+            }
+
+            if (secondary.length > 0) {
+                results += "\n--- Secondary Keywords ---\n";
+                secondary.forEach(kw => checkDensity(kw));
+            } else {
+                results += "\nNo secondary keywords provided.\n";
+            }
+
+            alert(results);
+        }
+
         // State variables
         let currentDraftMetadata = null;
         let currentDraftFilename = null;
@@ -323,11 +420,11 @@
 
         async function generateStory() {
             const title = document.getElementById('title').value.trim();
-            const subtitle = document.getElementById('subtitle').value.trim();
+            const description = document.getElementById('description').value.trim();
             const summary = document.getElementById('summary').value.trim();
             
-            if (!title || !subtitle) {
-                showStatus("Title and Subtitle are mandatory fields.", true);
+            if (!title || !description) {
+                showStatus("Title and Description are mandatory fields.", true);
                 return;
             }
 
@@ -335,6 +432,7 @@
             let type = "Short Story";
             checkboxes.forEach(cb => { if(cb.checked) type = cb.value; });
 
+            const canonicalUrl = document.getElementById('canonical_url').value.trim();
             const image = document.getElementById('image').value;
             const sources = document.getElementById('sources').value;
             
@@ -343,8 +441,9 @@
 
             const payload = {
                 title: title,
-                subtitle: subtitle,
+                description: description,
                 summary: summary,
+                canonical_url: canonicalUrl,
                 type: type,
                 image: image,
                 body: bodyHtml,
