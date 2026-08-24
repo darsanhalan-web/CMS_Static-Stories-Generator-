@@ -53,6 +53,11 @@ def serve_assets(subpath):
     # Serve CSS/JS/Images so the preview has a clean layout
     return send_from_directory(os.path.join(WEBSITE_ROOT, 'assets'), subpath)
 
+@app.route("/stories/<path:subpath>")
+def serve_stories(subpath):
+    # Serve story images for the preview
+    return send_from_directory(os.path.join(WEBSITE_ROOT, 'stories'), subpath)
+
 @app.route("/upload_image", methods=["POST"])
 def upload_image():
     if 'file' not in request.files:
