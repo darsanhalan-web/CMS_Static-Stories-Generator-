@@ -130,7 +130,7 @@ def generate():
     
     # AdSense HTML to inject
     ad_html = """
-    <div class="article-ad-container" style="margin: 3rem auto; text-align: center; display: flex; justify-content: center; width: 100%;">
+    <div class="article-ad-container" style="margin: 0.5rem auto; text-align: center; display: flex; justify-content: center; width: 100%;">
         <ins class="adsbygoogle"
              style="display:inline-block; width:300px; height:250px;"
              data-ad-client="ca-pub-1416149954400854"
@@ -167,7 +167,7 @@ def generate():
     
     if sources.strip():
         source_links = sources.split('\n')
-        source_html = '<div class="sources-block" style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #ddd;">'
+        source_html = '<div class="sources-block" style="margin-top: 1rem; padding-top: 2rem; border-top: 1px solid #ddd;">'
         source_html += '<h3>Sources</h3><ul>'
         for link in source_links:
             if link.strip():
@@ -176,26 +176,22 @@ def generate():
         content_html += source_html
         
     # Build Summary block conditional on Content Type
-    if type_ == "Short Story":
-        summary_block = f'''
-        <div class="reader-summary-block no-summary">
-            <div class="summary-image">
+    if image.endswith('-desktop.webp'):
+        mobile_img = image.replace('-desktop.webp', '-mobile.webp')
+        img_html = f'''
+            <picture>
+                <source media="(max-width: 600px)" srcset="../{mobile_img}">
                 <img src="../{image}" alt="Featured image for {title}">
-            </div>
-        </div>
-        '''
+            </picture>'''
     else:
-        summary_block = f'''
-        <div class="reader-summary-block">
-            <div class="summary-text">
-                <h3>Summary</h3>
-                <p>{summary}</p>
-            </div>
-            <div class="summary-image">
-                <img src="../{image}" alt="Featured image for {title}">
-            </div>
+        img_html = f'<img src="../{image}" alt="Featured image for {title}">'
+        
+    summary_block = f'''
+    <div class="reader-summary-block no-summary">
+        <div class="summary-image">{img_html}
         </div>
-        '''
+    </div>
+    '''
         
     # Replace Template Tokens
     final_html = template.replace('{{TITLE}}', title)
@@ -210,10 +206,47 @@ def generate():
         canonical_tag = f'<link rel="canonical" href="{canonical_url}">'
         final_html = final_html.replace('{{CANONICAL_URL}}', canonical_tag)
     else:
-        final_html = final_html.replace('{{CANONICAL_URL}}', '')
+        canonical_tag = f'<link rel="canonical" href="https://darsanhalan.com/stories/{filename}">'
+        final_html = final_html.replace('{{CANONICAL_URL}}', canonical_tag)
         
     final_html = final_html.replace('{{SUMMARY_BLOCK}}', summary_block)
     final_html = final_html.replace('{{CONTENT}}', content_html)
+    
+    # Related Posts logic
+    related_posts_html = ""
+    if os.path.exists(JSON_PATH):
+        try:
+            with open(JSON_PATH, 'r', encoding='utf-8') as f:
+                all_stories = json.load(f)
+            
+            # Mix both formats randomly
+            current_id = filename.replace('.html', '')
+            other_stories = [s for s in all_stories if s.get('id') != current_id]
+            import random
+            recent_stories = random.sample(other_stories, min(3, len(other_stories)))
+            
+            for s in recent_stories:
+                img_url = s.get('image', 'assets/images/story_placeholder.jpg')
+                if img_url.endswith('-desktop.webp'):
+                    img_url = img_url.replace('-desktop.webp', '-mobile.webp')
+                # Prefix with ../ because stories are rendered in /stories/ directory
+                final_img_url = '../' + img_url.lstrip('/')
+                title_ = s.get('title', '')
+                author_ = "Coffee Highs" if s.get('type') == "Blog" else "Short Story"
+                
+                related_posts_html += f'''
+                <div class="related-card">
+                    <a href="{s['id']}.html">
+                        <img src="{final_img_url}" alt="{title_}">
+                        <span class="related-card-title" style="margin-top: 0.5rem; display: block;">{title_}</span>
+                        <span class="related-card-author">{author_}</span>
+                    </a>
+                </div>
+                '''
+        except Exception as e:
+            print(f"Error loading related posts: {e}")
+            
+    final_html = final_html.replace('{{RELATED_POSTS}}', related_posts_html)
     
     # Schema Generation
     current_date = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
@@ -272,12 +305,14 @@ def generate():
         f.write(final_html)
         
     # Generate Metadata Payload for Approval later
+    current_date_iso = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
     metadata = {
         'id': filename.replace('.html', ''),
         'title': title,
         'type': type_,
         'summary': summary if summary else description,
-        'image': image
+        'image': image,
+        'datePublished': current_date_iso
     }
         
     return jsonify({"success": True, "filename": filename, "preview_url": f"/preview/{filename}", "metadata": metadata})
@@ -285,6 +320,111 @@ def generate():
 @app.route("/preview/<filename>")
 def preview(filename):
     return send_from_directory(TEMP_DIR, filename)
+
+def rebuild_static_feeds(stories):
+    # Sort stories by date descending
+    # Fallback to current date for older stories without datePublished
+    now_iso = datetime.datetime.now().astimezone().replace(microsecond=0).isoformat()
+    for s in stories:
+        if not s.get('datePublished'):
+            s['datePublished'] = now_iso
+            
+    sorted_stories = sorted(stories, key=lambda x: x.get('datePublished', now_iso), reverse=True)
+    
+    blogs = [s for s in sorted_stories if s.get('type') == 'Blog']
+    short_stories = [s for s in sorted_stories if s.get('type') == 'Short Story']
+    
+    # --- 1. index.html Carousel ---
+    carousel_html = ""
+    dots_html = ""
+    for i, s in enumerate(blogs[:8]):
+        date_obj = datetime.datetime.fromisoformat(s['datePublished'])
+        date_str = date_obj.strftime("%b %d, %Y")
+        img_url = s.get('image', 'assets/images/story_placeholder.jpg')
+        desc = s.get('summary', '')
+        if len(desc) > 100: desc = desc[:100] + '...'
+        
+        carousel_html += f"""
+                        <li class="story-slide">
+                            <article class="story-card" style="height: 100%; display: flex; flex-direction: column;">
+                                <a href="stories/{s['id']}.html" style="flex-grow: 1; display: flex; flex-direction: column; text-decoration: none; color: inherit;">
+                                    <div class="story-img" style="background-image: url('{img_url}'); height: 200px; background-size: cover; background-position: center;"></div>
+                                    <div style="padding: 1.5rem; flex-grow: 1; display: flex; flex-direction: column;">
+                                        <div class="story-meta" style="color: #888; font-size: 0.8rem; margin-bottom: 0.5rem;">Coffee Highs &bull; {date_str}</div>
+                                        <h3 class="story-subheading" style="margin-bottom: 0.8rem;">{s['title']}</h3>
+                                        <p class="story-body" style="flex-grow: 1;">{desc}</p>
+                                        <span class="story-more-link" style="margin-top: 1rem; color: var(--color-midnight-blue); font-weight: 600;">Read more &rarr;</span>
+                                    </div>
+                                </a>
+                            </article>
+                        </li>"""
+        active_class = " active" if i == 0 else ""
+        dots_html += f'\n                    <button class="stories-dot{active_class}" aria-label="Go to slide {i + 1}"></button>'
+        
+    index_path = os.path.join(WEBSITE_ROOT, "index.html")
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            idx_content = f.read()
+            
+        idx_content = re.sub(
+            r'<!-- CMS_COFFEE_HIGHS_CAROUSEL_START -->.*?<!-- CMS_COFFEE_HIGHS_CAROUSEL_END -->',
+            f'<!-- CMS_COFFEE_HIGHS_CAROUSEL_START -->{carousel_html}\n                        <!-- CMS_COFFEE_HIGHS_CAROUSEL_END -->',
+            idx_content, flags=re.DOTALL
+        )
+        idx_content = re.sub(
+            r'<!-- CMS_COFFEE_HIGHS_DOTS_START -->.*?<!-- CMS_COFFEE_HIGHS_DOTS_END -->',
+            f'<!-- CMS_COFFEE_HIGHS_DOTS_START -->{dots_html}\n                    <!-- CMS_COFFEE_HIGHS_DOTS_END -->',
+            idx_content, flags=re.DOTALL
+        )
+        
+        with open(index_path, 'w', encoding='utf-8') as f:
+            f.write(idx_content)
+
+    # --- 2. stories.html Grids ---
+    def build_grid(items, type_label):
+        html = ""
+        for s in items:
+            date_obj = datetime.datetime.fromisoformat(s['datePublished'])
+            date_str = date_obj.strftime("%b %d, %Y")
+            img_url = s.get('image', 'assets/images/story_placeholder.jpg')
+            if img_url.endswith('-desktop.webp'):
+                img_url = img_url.replace('-desktop.webp', '-mobile.webp')
+            desc = s.get('summary', '')
+            if len(desc) > 150: desc = desc[:150] + '...'
+            
+            html += f"""
+                        <article class="story-card">
+                            <a href="stories/{s['id']}.html">
+                                <div class="story-img" style="background-image: url('{img_url}');"></div>
+                                <div class="story-meta">{type_label} &bull; {date_str}</div>
+                                <h3 class="story-subheading">{s['title']}</h3>
+                                <p class="story-body">{desc}</p>
+                                <span class="story-more-link">Read Story &rarr;</span>
+                            </a>
+                        </article>"""
+        return html
+
+    coffee_html = build_grid(blogs, "Coffee Highs")
+    short_html = build_grid(short_stories, "Short Story")
+    
+    stories_path = os.path.join(WEBSITE_ROOT, "stories.html")
+    if os.path.exists(stories_path):
+        with open(stories_path, 'r', encoding='utf-8') as f:
+            st_content = f.read()
+            
+        st_content = re.sub(
+            r'<!-- CMS_COFFEE_HIGHS_FEED_START -->.*?<!-- CMS_COFFEE_HIGHS_FEED_END -->',
+            f'<!-- CMS_COFFEE_HIGHS_FEED_START -->{coffee_html}\n                        <!-- CMS_COFFEE_HIGHS_FEED_END -->',
+            st_content, flags=re.DOTALL
+        )
+        st_content = re.sub(
+            r'<!-- CMS_SHORT_STORIES_FEED_START -->.*?<!-- CMS_SHORT_STORIES_FEED_END -->',
+            f'<!-- CMS_SHORT_STORIES_FEED_START -->{short_html}\n                        <!-- CMS_SHORT_STORIES_FEED_END -->',
+            st_content, flags=re.DOTALL
+        )
+        
+        with open(stories_path, 'w', encoding='utf-8') as f:
+            f.write(st_content)
 
 @app.route("/approve", methods=["POST"])
 def approve():
@@ -321,6 +461,12 @@ def approve():
     
     with open(JSON_PATH, 'w', encoding='utf-8') as f:
         json.dump(stories, f, indent=4)
+        
+    # Rebuild static HTML feeds across the site
+    try:
+        rebuild_static_feeds(stories)
+    except Exception as e:
+        print(f"Error rebuilding static feeds: {e}")
         
     return jsonify({"success": True})
 
