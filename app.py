@@ -128,17 +128,9 @@ def generate():
     # Embed Videos & Add Sources
     content_html = embed_videos(body)
     
-    # AdSense HTML to inject
+    # In-Article Book Ad Slot to inject
     ad_html = """
-    <div class="article-ad-container" style="margin: 0.5rem auto; text-align: center; display: flex; justify-content: center; width: 100%;">
-        <ins class="adsbygoogle"
-             style="display:inline-block; width:300px; height:250px;"
-             data-ad-client="ca-pub-1416149954400854"
-             data-ad-slot="auto"></ins>
-        <script>
-             (adsbygoogle = window.adsbygoogle || []).push({});
-        </script>
-    </div>
+    <div class="story-ad-banner-slot"></div>
     """
     
     # Inject Ads
